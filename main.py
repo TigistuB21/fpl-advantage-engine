@@ -6,11 +6,11 @@ Provides RESTful asynchronous endpoints for player predictions, squad optimizati
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select, text
+from sqlalchemy import select, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import Player, Team, PlayerPrediction, SquadOptimization
+from models import Player, Team, Fixture, PlayerPrediction, SquadOptimization
 from schemas import (
     HealthResponse,
     PlayerPredictionItem,
@@ -139,7 +139,7 @@ async def get_player_details(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Queries database for a specific player's REAL underlying statistics and next 3 upcoming fixtures.
+    Queries database for a specific player's REAL underlying statistics and REAL next 3 upcoming fixtures.
     """
     stmt = (
         select(
@@ -178,28 +178,42 @@ async def get_player_details(
             detail=f"Player with ID {player_id} not found",
         )
 
-    # Fetch opponent teams to generate next 3 fixtures
-    teams_result = await db.execute(select(Team.name, Team.short_name).where(Team.id != row.team_id).limit(3))
-    opponents = teams_result.all()
+    # Fetch all teams to resolve opponent team names
+    all_teams_result = await db.execute(select(Team))
+    teams_map = {t.id: t for t in all_teams_result.scalars().all()}
 
-    # Generate 3 upcoming fixtures
-    fixtures = []
-    gw_start = 1
-    diffs = [2, 3, 4]
-    for i, opp in enumerate(opponents):
-        fixtures.append(
+    # Query next 3 REAL upcoming fixtures for this player's specific team from PostgreSQL
+    fix_stmt = (
+        select(Fixture)
+        .where(
+            Fixture.finished == False,
+            or_(Fixture.team_h_id == row.team_id, Fixture.team_a_id == row.team_id),
+        )
+        .order_by(Fixture.event_id.asc(), Fixture.id.asc())
+        .limit(3)
+    )
+    fix_result = await db.execute(fix_stmt)
+    raw_fixtures = fix_result.scalars().all()
+
+    upcoming_fixtures = []
+    for fix in raw_fixtures:
+        is_home = (fix.team_h_id == row.team_id)
+        opp_id = fix.team_a_id if is_home else fix.team_h_id
+        opp_team = teams_map.get(opp_id)
+        difficulty = fix.team_h_difficulty if is_home else fix.team_a_difficulty
+
+        upcoming_fixtures.append(
             FixtureItem(
-                event_id=gw_start + i,
-                opponent_name=opp.name,
-                opponent_short=opp.short_name,
-                is_home=(i % 2 == 0),
-                difficulty=diffs[i % len(diffs)],
+                event_id=fix.event_id or 1,
+                opponent_name=opp_team.name if opp_team else "Unknown",
+                opponent_short=opp_team.short_name if opp_team else "UNK",
+                is_home=is_home,
+                difficulty=difficulty,
             )
         )
 
     predicted_xp = float(row.predicted_xp) if row.predicted_xp else 4.0
 
-    # REAL statistics stored directly in PostgreSQL
     underlying = {
         "goals_scored": int(row.goals_scored),
         "assists": int(row.assists),
@@ -224,7 +238,7 @@ async def get_player_details(
         selected_by_percent=float(row.selected_by_percent),
         predicted_xp=predicted_xp,
         underlying_stats=underlying,
-        upcoming_fixtures=fixtures,
+        upcoming_fixtures=upcoming_fixtures,
     )
 
 

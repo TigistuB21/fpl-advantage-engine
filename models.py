@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, JSON, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
 
@@ -78,6 +78,22 @@ class Player(Base):
 
     def __repr__(self) -> str:
         return f"<Player(id={self.id}, web_name='{self.web_name}', team_id={self.team_id}, cost=£{self.now_cost / 10.0}m)>"
+
+
+class Fixture(Base):
+    """SQLAlchemy 2.0 Model for Official Premier League Fixture Schedule."""
+    __tablename__ = "fixtures"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    team_h_id: Mapped[int] = mapped_column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    team_a_id: Mapped[int] = mapped_column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    team_h_difficulty: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    team_a_difficulty: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    finished: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Fixture(id={self.id}, GW={self.event_id}, H={self.team_h_id}, A={self.team_a_id})>"
 
 
 class PlayerPrediction(Base):

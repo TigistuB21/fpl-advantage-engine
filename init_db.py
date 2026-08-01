@@ -18,8 +18,8 @@ if sys.platform == "win32":
 async def init_db():
     print("Connecting to PostgreSQL and updating tables...")
     async with engine.begin() as conn:
-        # Drop existing tables to update schema with underlying stats columns
-        await conn.execute(text("DROP TABLE IF EXISTS player_predictions, squad_optimizations, players, teams CASCADE;"))
+        # Drop existing tables to update schema with fixtures table
+        await conn.execute(text("DROP TABLE IF EXISTS player_predictions, squad_optimizations, fixtures, players, teams CASCADE;"))
         await conn.run_sync(Base.metadata.create_all)
     print("Database tables updated successfully!")
 
