@@ -1,7 +1,7 @@
 """
 FPL Advantage Engine - Async ETL Pipeline Script (Phase 1)
 Extracts raw data from FPL bootstrap-static API, transforms JSON to match ORM models,
-and upserts teams and players into PostgreSQL using SQLAlchemy 2.0.
+and upserts teams and players into PostgreSQL using SQLAlchemy 2.0 in chunked batches.
 """
 
 import asyncio
@@ -77,6 +77,14 @@ def transform_players(raw_elements: list, element_types: list) -> list[dict]:
             "status": player.get("status", "a"),
             "selected_by_percent": float(player.get("selected_by_percent", 0.0)),
             "news": player.get("news"),
+            "goals_scored": player.get("goals_scored", 0),
+            "assists": player.get("assists", 0),
+            "clean_sheets": player.get("clean_sheets", 0),
+            "ict_index": float(player.get("ict_index", 0.0) or 0.0),
+            "influence": float(player.get("influence", 0.0) or 0.0),
+            "creativity": float(player.get("creativity", 0.0) or 0.0),
+            "threat": float(player.get("threat", 0.0) or 0.0),
+            "form": float(player.get("form", 0.0) or 0.0),
         }
         transformed.append(record)
     return transformed
@@ -104,24 +112,35 @@ async def load_data(teams_records: list[dict], players_records: list[dict]):
             )
             await session.execute(team_stmt)
 
-            # Step 2: Upsert Players (Child Table)
-            print(f"[LOAD] Upserting {len(players_records)} players into database...")
-            player_stmt = pg_insert(Player).values(players_records)
-            player_stmt = player_stmt.on_conflict_do_update(
-                index_elements=["id"],
-                set_={
-                    "team_id": player_stmt.excluded.team_id,
-                    "web_name": player_stmt.excluded.web_name,
-                    "first_name": player_stmt.excluded.first_name,
-                    "second_name": player_stmt.excluded.second_name,
-                    "element_type": player_stmt.excluded.element_type,
-                    "now_cost": player_stmt.excluded.now_cost,
-                    "status": player_stmt.excluded.status,
-                    "selected_by_percent": player_stmt.excluded.selected_by_percent,
-                    "news": player_stmt.excluded.news,
-                },
-            )
-            await session.execute(player_stmt)
+            # Step 2: Chunked Upsert for Players (50 players per batch)
+            chunk_size = 50
+            print(f"[LOAD] Upserting {len(players_records)} players in batches of {chunk_size}...")
+            for i in range(0, len(players_records), chunk_size):
+                chunk = players_records[i : i + chunk_size]
+                player_stmt = pg_insert(Player).values(chunk)
+                player_stmt = player_stmt.on_conflict_do_update(
+                    index_elements=["id"],
+                    set_={
+                        "team_id": player_stmt.excluded.team_id,
+                        "web_name": player_stmt.excluded.web_name,
+                        "first_name": player_stmt.excluded.first_name,
+                        "second_name": player_stmt.excluded.second_name,
+                        "element_type": player_stmt.excluded.element_type,
+                        "now_cost": player_stmt.excluded.now_cost,
+                        "status": player_stmt.excluded.status,
+                        "selected_by_percent": player_stmt.excluded.selected_by_percent,
+                        "news": player_stmt.excluded.news,
+                        "goals_scored": player_stmt.excluded.goals_scored,
+                        "assists": player_stmt.excluded.assists,
+                        "clean_sheets": player_stmt.excluded.clean_sheets,
+                        "ict_index": player_stmt.excluded.ict_index,
+                        "influence": player_stmt.excluded.influence,
+                        "creativity": player_stmt.excluded.creativity,
+                        "threat": player_stmt.excluded.threat,
+                        "form": player_stmt.excluded.form,
+                    },
+                )
+                await session.execute(player_stmt)
 
     print("[LOAD] Database transaction committed successfully!")
 

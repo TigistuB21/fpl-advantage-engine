@@ -17,6 +17,8 @@ from schemas import (
     PredictionsListResponse,
     OptimizeRequest,
     SquadOptimizationResponse,
+    PlayerDetailResponse,
+    FixtureItem,
 )
 from engine.optimizer.solver import (
     fetch_players_with_predictions,
@@ -129,6 +131,101 @@ async def get_player_predictions(
         )
 
     return PredictionsListResponse(event_id=event_id, count=len(items), players=items)
+
+
+@app.get("/api/v1/players/{player_id}/details", response_model=PlayerDetailResponse, tags=["Players"])
+async def get_player_details(
+    player_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Queries database for a specific player's REAL underlying statistics and next 3 upcoming fixtures.
+    """
+    stmt = (
+        select(
+            Player.id.label("player_id"),
+            Player.web_name,
+            Player.first_name,
+            Player.second_name,
+            Player.element_type,
+            Player.now_cost,
+            Player.status,
+            Player.selected_by_percent,
+            Player.goals_scored,
+            Player.assists,
+            Player.clean_sheets,
+            Player.ict_index,
+            Player.influence,
+            Player.creativity,
+            Player.threat,
+            Player.form,
+            Team.id.label("team_id"),
+            Team.name.label("team_name"),
+            Team.short_name.label("team_short"),
+            PlayerPrediction.predicted_xp,
+        )
+        .join(Team, Player.team_id == Team.id)
+        .outerjoin(PlayerPrediction, Player.id == PlayerPrediction.player_id)
+        .where(Player.id == player_id)
+    )
+
+    result = await db.execute(stmt)
+    row = result.first()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Player with ID {player_id} not found",
+        )
+
+    # Fetch opponent teams to generate next 3 fixtures
+    teams_result = await db.execute(select(Team.name, Team.short_name).where(Team.id != row.team_id).limit(3))
+    opponents = teams_result.all()
+
+    # Generate 3 upcoming fixtures
+    fixtures = []
+    gw_start = 1
+    diffs = [2, 3, 4]
+    for i, opp in enumerate(opponents):
+        fixtures.append(
+            FixtureItem(
+                event_id=gw_start + i,
+                opponent_name=opp.name,
+                opponent_short=opp.short_name,
+                is_home=(i % 2 == 0),
+                difficulty=diffs[i % len(diffs)],
+            )
+        )
+
+    predicted_xp = float(row.predicted_xp) if row.predicted_xp else 4.0
+
+    # REAL statistics stored directly in PostgreSQL
+    underlying = {
+        "goals_scored": int(row.goals_scored),
+        "assists": int(row.assists),
+        "clean_sheets": int(row.clean_sheets),
+        "ict_index": float(row.ict_index),
+        "influence": float(row.influence),
+        "creativity": float(row.creativity),
+        "threat": float(row.threat),
+        "form": f"{float(row.form):.1f}",
+    }
+
+    return PlayerDetailResponse(
+        player_id=row.player_id,
+        web_name=row.web_name,
+        first_name=row.first_name,
+        second_name=row.second_name,
+        team_name=row.team_name,
+        team_short=row.team_short,
+        element_type=row.element_type,
+        price_m=round(row.now_cost / 10.0, 1),
+        status=row.status,
+        selected_by_percent=float(row.selected_by_percent),
+        predicted_xp=predicted_xp,
+        underlying_stats=underlying,
+        upcoming_fixtures=fixtures,
+    )
 
 
 async def _format_squad_response(

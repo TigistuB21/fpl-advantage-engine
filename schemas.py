@@ -34,6 +34,30 @@ class PredictionsListResponse(BaseModel):
     players: List[PlayerPredictionItem]
 
 
+class FixtureItem(BaseModel):
+    event_id: int
+    opponent_name: str
+    opponent_short: str
+    is_home: bool
+    difficulty: int
+
+
+class PlayerDetailResponse(BaseModel):
+    player_id: int
+    web_name: str
+    first_name: Optional[str] = None
+    second_name: Optional[str] = None
+    team_name: str
+    team_short: str
+    element_type: str
+    price_m: float
+    status: str
+    selected_by_percent: float
+    predicted_xp: float
+    underlying_stats: Dict[str, Any]
+    upcoming_fixtures: List[FixtureItem]
+
+
 class OptimizeRequest(BaseModel):
     budget: float = Field(default=100.0, ge=50.0, le=150.0, description="Total squad budget in £ millions")
     event_id: int = Field(default=1, ge=1, le=38, description="Target Gameweek number")

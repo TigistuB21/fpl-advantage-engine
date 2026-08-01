@@ -53,6 +53,16 @@ class Player(Base):
     selected_by_percent: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     news: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
+    # Real underlying performance statistics from official FPL API
+    goals_scored: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    assists: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    clean_sheets: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    ict_index: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    influence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    creativity: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    threat: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    form: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

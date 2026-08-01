@@ -1,18 +1,16 @@
-import { PlayerPrediction, PredictionsListResponse, SquadOptimization } from '../types/fpl';
+import { PlayerPrediction, PredictionsListResponse, SquadOptimization, PlayerDetail } from '../types/fpl';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 /**
- * Fetches the top predicted players from the FastAPI backend.
+ * Fetches top predicted players from the FastAPI backend (/api/v1/predictions).
  */
 export async function getTopPredictions(limit: number = 5, eventId: number = 1): Promise<PlayerPrediction[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/v1/predictions?limit=${limit}&event_id=${eventId}`, {
       cache: 'no-store',
     });
-    if (!res.ok) {
-      throw new Error(`Failed to fetch predictions: ${res.statusText}`);
-    }
+    if (!res.ok) throw new Error(`Failed to fetch predictions: ${res.statusText}`);
     const data: PredictionsListResponse = await res.json();
     return data.players;
   } catch (error) {
@@ -22,53 +20,33 @@ export async function getTopPredictions(limit: number = 5, eventId: number = 1):
 }
 
 /**
- * Fetches the latest AI optimal 15-player squad from the FastAPI backend.
+ * Fetches detailed underlying stats and next 3 upcoming fixtures for a specific player (/api/v1/players/{id}/details).
+ */
+export async function getPlayerDetails(playerId: number): Promise<PlayerDetail | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/players/${playerId}/details`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`Failed to fetch player details: ${res.statusText}`);
+    return await res.json();
+  } catch (error) {
+    console.error('Error fetching player details:', error);
+    return null;
+  }
+}
+
+/**
+ * Fetches the latest AI optimal 15-player squad from FastAPI (/api/v1/optimize/latest).
  */
 export async function getLatestOptimization(eventId: number = 1): Promise<SquadOptimization | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/v1/optimize/latest?event_id=${eventId}`, {
       cache: 'no-store',
     });
-    if (!res.ok) {
-      throw new Error(`Failed to fetch optimization: ${res.statusText}`);
-    }
-    const data: SquadOptimization = await res.json();
-    return data;
+    if (!res.ok) throw new Error(`Failed to fetch optimization: ${res.statusText}`);
+    return await res.json();
   } catch (error) {
     console.error('Error fetching optimal squad:', error);
-    return null;
-  }
-}
-
-/**
- * Triggers PuLP Integer Programming optimization on demand with custom constraints.
- */
-export async function triggerOptimization(
-  budget: number = 100.0,
-  eventId: number = 1,
-  lockedPlayerIds: number[] = [],
-  excludedPlayerIds: number[] = []
-): Promise<SquadOptimization | null> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/v1/optimize`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        budget,
-        event_id: eventId,
-        locked_player_ids: lockedPlayerIds,
-        excluded_player_ids: excludedPlayerIds,
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`Optimization failed: ${res.statusText}`);
-    }
-    const data: SquadOptimization = await res.json();
-    return data;
-  } catch (error) {
-    console.error('Error triggering optimization:', error);
     return null;
   }
 }
