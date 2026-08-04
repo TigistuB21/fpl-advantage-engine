@@ -50,6 +50,61 @@ async def fetch_fpl_fixtures_data() -> list:
     return data
 
 
+async def fetch_fpl_user_picks(manager_id: int, event_id: int | None = None) -> dict:
+    """
+    Extracts raw user squad picks, bank balance, and manager metadata from official FPL API endpoints.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    user_entry_url = f"https://fantasy.premierleague.com/api/entry/{manager_id}/"
+    async with httpx.AsyncClient(headers=headers, timeout=20.0, follow_redirects=True) as client:
+        entry_res = await client.get(user_entry_url)
+        entry_res.raise_for_status()
+        entry_data = entry_res.json()
+
+        current_ev = entry_data.get("current_event") or 1
+        target_event = event_id or current_ev
+        picks_data = {}
+
+        # Search for published squad picks from target_event down to 1
+        for curr_gw in range(target_event, 0, -1):
+            picks_url = f"https://fantasy.premierleague.com/api/entry/{manager_id}/event/{curr_gw}/picks/"
+            try:
+                picks_res = await client.get(picks_url)
+                if picks_res.status_code == 200:
+                    res_json = picks_res.json()
+                    if res_json.get("picks"):
+                        picks_data = res_json
+                        target_event = curr_gw
+                        break
+            except Exception:
+                continue
+
+
+
+    first_name = entry_data.get("player_first_name", "")
+    last_name = entry_data.get("player_last_name", "")
+    player_name = f"{first_name} {last_name}".strip() or f"Manager {manager_id}"
+    team_name = entry_data.get("name", "FPL Squad")
+
+    entry_history = picks_data.get("entry_history", {})
+    bank = entry_history.get("bank") if entry_history.get("bank") is not None else (entry_data.get("last_deadline_bank") or 0)
+    bank_m = bank / 10.0
+    free_transfers = entry_history.get("event_transfers", 1) or 1
+
+    return {
+        "manager_id": manager_id,
+        "event_id": target_event,
+        "player_name": player_name,
+        "team_name": team_name,
+        "bank_m": bank_m,
+        "free_transfers": free_transfers,
+        "picks": picks_data.get("picks", []),
+    }
+
+
+
 def transform_teams(raw_teams: list) -> list[dict]:
     """Transforms raw team JSON objects into dictionary records for database insertion."""
     transformed = []
