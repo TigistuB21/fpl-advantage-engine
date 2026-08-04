@@ -12,6 +12,13 @@ class HealthResponse(BaseModel):
     version: str = "1.0.0"
 
 
+class FixtureDataItem(BaseModel):
+    opponent: str
+    is_home: bool
+    difficulty: int
+    xp: float
+
+
 class PlayerPredictionItem(BaseModel):
     player_id: int
     web_name: str
@@ -26,6 +33,7 @@ class PlayerPredictionItem(BaseModel):
     status: str        # 'a', 'd', 'i', 's'
     selected_by_percent: float
     predicted_xp: float
+    upcoming_fixtures: Optional[Dict[int, List[FixtureDataItem]]] = None
 
 
 class PredictionsListResponse(BaseModel):
@@ -95,8 +103,9 @@ class TransferOptimizationRequest(BaseModel):
     current_squad_ids: List[int] = Field(..., description="List of 15 player IDs in user's current squad")
     bank: float = Field(default=0.0, ge=0.0, le=100.0, description="Available bank balance in £ millions")
     free_transfers: int = Field(default=1, ge=0, le=5, description="Number of available free transfers")
-    max_transfers: int = Field(default=2, ge=0, le=5, description="Maximum transfers allowed to evaluate")
+    max_transfers: int = Field(default=2, ge=0, le=15, description="Maximum transfers allowed to evaluate")
     event_id: int = Field(default=1, ge=1, le=38, description="Target Gameweek number")
+    active_chip: Optional[str] = Field(default=None, description="Active FPL Chip: 'WC', 'FH', 'BB', 'TC'")
 
 
 class TransferItem(BaseModel):
