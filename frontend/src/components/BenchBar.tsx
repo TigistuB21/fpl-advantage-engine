@@ -6,10 +6,17 @@ import { PlayerCard } from './PlayerCard';
 
 interface BenchBarProps {
   bench: PlayerPrediction[];
+  transferredInIds?: number[];
+  transferredOutIds?: number[];
   onPlayerClick?: (player: PlayerPrediction) => void;
 }
 
-export const BenchBar: React.FC<BenchBarProps> = ({ bench, onPlayerClick }) => {
+export const BenchBar: React.FC<BenchBarProps> = ({
+  bench,
+  transferredInIds = [],
+  transferredOutIds = [],
+  onPlayerClick,
+}) => {
   return (
     <div className="mt-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl backdrop-blur-md">
       <div className="flex justify-between items-center mb-3 px-2">
@@ -29,6 +36,8 @@ export const BenchBar: React.FC<BenchBarProps> = ({ bench, onPlayerClick }) => {
             <PlayerCard
               player={player}
               isBench={true}
+              isTransferredIn={transferredInIds.includes(player.player_id)}
+              isTransferredOut={transferredOutIds.includes(player.player_id)}
               onClick={onPlayerClick}
             />
           </div>
@@ -37,3 +46,4 @@ export const BenchBar: React.FC<BenchBarProps> = ({ bench, onPlayerClick }) => {
     </div>
   );
 };
+

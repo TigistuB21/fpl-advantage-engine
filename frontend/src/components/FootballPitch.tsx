@@ -9,6 +9,8 @@ interface FootballPitchProps {
   captainId: number;
   viceCaptainId: number;
   formation: string;
+  transferredInIds?: number[];
+  transferredOutIds?: number[];
   onPlayerClick?: (player: PlayerPrediction) => void;
 }
 
@@ -17,6 +19,8 @@ export const FootballPitch: React.FC<FootballPitchProps> = ({
   captainId,
   viceCaptainId,
   formation,
+  transferredInIds = [],
+  transferredOutIds = [],
   onPlayerClick,
 }) => {
   // Group starters into 4 position rows
@@ -59,6 +63,8 @@ export const FootballPitch: React.FC<FootballPitchProps> = ({
               player={player}
               isCaptain={player.player_id === captainId}
               isViceCaptain={player.player_id === viceCaptainId}
+              isTransferredIn={transferredInIds.includes(player.player_id)}
+              isTransferredOut={transferredOutIds.includes(player.player_id)}
               onClick={onPlayerClick}
             />
           ))}
@@ -72,6 +78,8 @@ export const FootballPitch: React.FC<FootballPitchProps> = ({
               player={player}
               isCaptain={player.player_id === captainId}
               isViceCaptain={player.player_id === viceCaptainId}
+              isTransferredIn={transferredInIds.includes(player.player_id)}
+              isTransferredOut={transferredOutIds.includes(player.player_id)}
               onClick={onPlayerClick}
             />
           ))}
@@ -85,6 +93,8 @@ export const FootballPitch: React.FC<FootballPitchProps> = ({
               player={player}
               isCaptain={player.player_id === captainId}
               isViceCaptain={player.player_id === viceCaptainId}
+              isTransferredIn={transferredInIds.includes(player.player_id)}
+              isTransferredOut={transferredOutIds.includes(player.player_id)}
               onClick={onPlayerClick}
             />
           ))}
@@ -98,6 +108,8 @@ export const FootballPitch: React.FC<FootballPitchProps> = ({
               player={player}
               isCaptain={player.player_id === captainId}
               isViceCaptain={player.player_id === viceCaptainId}
+              isTransferredIn={transferredInIds.includes(player.player_id)}
+              isTransferredOut={transferredOutIds.includes(player.player_id)}
               onClick={onPlayerClick}
             />
           ))}
@@ -106,3 +118,4 @@ export const FootballPitch: React.FC<FootballPitchProps> = ({
     </div>
   );
 };
+

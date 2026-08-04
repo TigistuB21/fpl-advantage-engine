@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import Player, Team, Fixture, PlayerPrediction, SquadOptimization
+from etl import fetch_fpl_user_picks
 from schemas import (
     HealthResponse,
     PlayerPredictionItem,
@@ -19,12 +20,25 @@ from schemas import (
     SquadOptimizationResponse,
     PlayerDetailResponse,
     FixtureItem,
+    UserSquadResponse,
+    TransferOptimizationRequest,
+    TransferItem,
+    TransferOptimizationResponse,
+    ExplainTransferRequest,
+    ExplainTransferResponse,
+    ChipScenarioItem,
+    ChipOptimizationResponse,
 )
+
 from engine.optimizer.solver import (
     fetch_players_with_predictions,
     solve_squad_optimization,
     run_and_save_optimization,
+    optimize_user_transfers,
+    evaluate_chip_strategies,
 )
+from engine.ml.director import generate_transfer_explanation
+
 
 app = FastAPI(
     title="FPL Advantage Engine API",
@@ -332,3 +346,336 @@ async def run_optimization(request: OptimizeRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Optimization failed: {str(e)}",
         )
+
+
+async def _generate_preseason_squad(
+    manager_id: int,
+    target_event: int,
+    player_name: str,
+    team_name: str,
+    bank_m: float,
+    free_transfers: int,
+    db: AsyncSession
+) -> UserSquadResponse:
+    stmt = (
+        select(
+            Player.id.label("player_id"),
+            Player.web_name,
+            Player.first_name,
+            Player.second_name,
+            Player.element_type,
+            Player.now_cost,
+            Player.status,
+            Player.selected_by_percent,
+            Team.id.label("team_id"),
+            Team.name.label("team_name"),
+            Team.short_name.label("team_short"),
+            PlayerPrediction.predicted_xp,
+        )
+        .join(Team, Player.team_id == Team.id)
+        .join(
+            PlayerPrediction,
+            (Player.id == PlayerPrediction.player_id) & (PlayerPrediction.event_id == target_event),
+        )
+        .order_by(PlayerPrediction.predicted_xp.desc())
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    gkps, defs, mids, fwds = [], [], [], []
+    for r in rows:
+        item = PlayerPredictionItem(
+            player_id=r.player_id,
+            web_name=r.web_name,
+            first_name=r.first_name,
+            second_name=r.second_name,
+            team_id=r.team_id,
+            team_name=r.team_name,
+            team_short=r.team_short,
+            element_type=r.element_type,
+            now_cost=r.now_cost,
+            price_m=round(r.now_cost / 10.0, 1),
+            status=r.status,
+            selected_by_percent=float(r.selected_by_percent),
+            predicted_xp=float(r.predicted_xp),
+        )
+        if r.element_type == 'GKP' and len(gkps) < 2:
+            gkps.append(item)
+        elif r.element_type == 'DEF' and len(defs) < 5:
+            defs.append(item)
+        elif r.element_type == 'MID' and len(mids) < 5:
+            mids.append(item)
+        elif r.element_type == 'FWD' and len(fwds) < 3:
+            fwds.append(item)
+
+    starters = ([gkps[0]] if gkps else []) + defs[:3] + mids[:4] + fwds[:3]
+    bench = ([gkps[1]] if len(gkps) > 1 else []) + defs[3:] + mids[4:]
+
+    return UserSquadResponse(
+        manager_id=manager_id,
+        event_id=target_event,
+        player_name=f"{player_name} (Pre-Season Squad)",
+        team_name=team_name if team_name != "FPL Team" else "Pre-Season Advantage XI",
+        bank_m=max(bank_m, 1.5),
+        free_transfers=free_transfers or 1,
+        starting_11=starters,
+        bench=bench,
+    )
+
+
+@app.get("/api/v1/user/{manager_id}/squad", response_model=UserSquadResponse, tags=["User Squad"])
+async def get_user_squad(
+    manager_id: int,
+    event_id: Optional[int] = Query(default=None, description="Gameweek Event ID"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Fetches official FPL user picks, bank balance, and maps them to local PostgreSQL player IDs.
+    """
+    try:
+        squad_data = await fetch_fpl_user_picks(manager_id, event_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unable to fetch FPL squad for manager ID {manager_id}: {str(e)}",
+        )
+
+    target_event = squad_data["event_id"]
+    picks = squad_data.get("picks", [])
+    if not picks:
+        # Pre-season / Before GW1 deadline fallback: Generate a realistic 15-player squad from top DB predictions
+        return await _generate_preseason_squad(
+            manager_id=manager_id,
+            target_event=target_event,
+            player_name=squad_data.get("player_name", f"Manager #{manager_id}"),
+            team_name=squad_data.get("team_name", "FPL Advantage Squad"),
+            bank_m=squad_data.get("bank_m", 1.5),
+            free_transfers=squad_data.get("free_transfers", 1),
+            db=db,
+        )
+
+
+    element_ids = [p["element"] for p in picks]
+
+    stmt = (
+        select(
+            Player.id.label("player_id"),
+            Player.web_name,
+            Player.first_name,
+            Player.second_name,
+            Player.element_type,
+            Player.now_cost,
+            Player.status,
+            Player.selected_by_percent,
+            Team.id.label("team_id"),
+            Team.name.label("team_name"),
+            Team.short_name.label("team_short"),
+            PlayerPrediction.predicted_xp,
+        )
+        .join(Team, Player.team_id == Team.id)
+        .outerjoin(
+            PlayerPrediction,
+            (Player.id == PlayerPrediction.player_id) & (PlayerPrediction.event_id == target_event),
+        )
+        .where(Player.id.in_(element_ids))
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    player_items_map = {}
+    for row in rows:
+        item = PlayerPredictionItem(
+            player_id=row.player_id,
+            web_name=row.web_name,
+            first_name=row.first_name,
+            second_name=row.second_name,
+            team_id=row.team_id,
+            team_name=row.team_name,
+            team_short=row.team_short,
+            element_type=row.element_type,
+            now_cost=row.now_cost,
+            price_m=round(row.now_cost / 10.0, 1),
+            status=row.status,
+            selected_by_percent=float(row.selected_by_percent),
+            predicted_xp=float(row.predicted_xp) if row.predicted_xp is not None else 0.0,
+        )
+        player_items_map[row.player_id] = item
+
+    starting_11 = []
+    bench = []
+
+    for pick in sorted(picks, key=lambda x: x["position"]):
+        pid = pick["element"]
+        pos = pick["position"]
+        if pid in player_items_map:
+            item = player_items_map[pid]
+            if pos <= 11:
+                starting_11.append(item)
+            else:
+                bench.append(item)
+
+    return UserSquadResponse(
+        manager_id=manager_id,
+        event_id=target_event,
+        player_name=squad_data["player_name"],
+        team_name=squad_data["team_name"],
+        bank_m=squad_data["bank_m"],
+        free_transfers=squad_data["free_transfers"],
+        starting_11=starting_11,
+        bench=bench,
+    )
+
+
+@app.post("/api/v1/optimize/transfers", response_model=TransferOptimizationResponse, tags=["Optimization"])
+async def run_transfer_optimization(request: TransferOptimizationRequest):
+    """
+    Triggers PuLP transfer optimization for a user's current squad, calculating best IN/OUT transfers and point hits.
+    """
+    try:
+        df = await fetch_players_with_predictions(event_id=request.event_id)
+        if df.empty:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No player predictions found for target gameweek. Run predictor first.",
+            )
+
+        solution = optimize_user_transfers(
+            current_squad_ids=request.current_squad_ids,
+            bank=request.bank,
+            free_transfers=request.free_transfers,
+            max_transfers=request.max_transfers,
+            event_id=request.event_id,
+            df=df,
+        )
+
+        player_map = {row["player_id"]: row for row in df.to_dict(orient="records")}
+
+        def to_prediction_item(p_dict: dict) -> PlayerPredictionItem:
+            return PlayerPredictionItem(
+                player_id=p_dict["player_id"],
+                web_name=p_dict["web_name"],
+                first_name=p_dict.get("first_name"),
+                second_name=p_dict.get("second_name"),
+                team_id=p_dict["team_id"],
+                team_name=p_dict["team_name"],
+                team_short=p_dict["team_short"],
+                element_type=p_dict["element_type"],
+                now_cost=p_dict["now_cost"],
+                price_m=round(p_dict["now_cost"] / 10.0, 1),
+                status=p_dict["status"],
+                selected_by_percent=float(p_dict.get("selected_by_percent", 0.0)),
+                predicted_xp=float(p_dict["predicted_xp"]),
+            )
+
+        transfers = []
+        out_ids = solution["transferred_out_ids"]
+        in_ids = solution["transferred_in_ids"]
+
+        for out_id, in_id in zip(out_ids, in_ids):
+            out_item = to_prediction_item(player_map[out_id])
+            in_item = to_prediction_item(player_map[in_id])
+            transfers.append(TransferItem(transferred_out=out_item, transferred_in=in_item))
+
+        starting_11 = [to_prediction_item(p) for p in solution["starters_detail"]]
+        bench = [to_prediction_item(p) for p in solution["bench_detail"]]
+
+        return TransferOptimizationResponse(
+            event_id=request.event_id,
+            formation=solution["formation"],
+            transfers_made=solution["transfers_made"],
+            free_transfers=solution["free_transfers"],
+            hits_taken=solution["hits_taken"],
+            hit_penalty=solution["hit_penalty"],
+            transfers=transfers,
+            starting_11=starting_11,
+            bench=bench,
+            captain_id=solution["captain_id"],
+            vice_captain_id=solution["vice_captain_id"],
+            total_expected_points=solution["total_expected_points"],
+            net_xp_gain=solution["net_xp_gain"],
+            remaining_bank=solution["remaining_bank"],
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Transfer optimization failed: {str(e)}",
+        )
+
+
+@app.post("/api/v1/chat/explain-transfer", response_model=ExplainTransferResponse, tags=["Director of Football Chat"])
+async def explain_transfer_recommendation(request: ExplainTransferRequest):
+    """
+    Generates a data-driven Director of Football explanation for a transfer recommendation
+    using Gemini API (or rule-based fallback).
+    """
+    try:
+        res = generate_transfer_explanation(
+            squad_context=request.user_squad,
+            transfer_context=request.transfer_result
+        )
+        return ExplainTransferResponse(
+            explanation=res["explanation"],
+            director_name=res["director_name"],
+            model_version=res["model_version"],
+            is_fallback=res["is_fallback"],
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate Director explanation: {str(e)}"
+        )
+
+
+@app.get("/api/v1/optimize/chips/{manager_id}", response_model=ChipOptimizationResponse, tags=["Chip Optimization"])
+async def get_chip_optimization(
+    manager_id: int,
+    event_id: Optional[int] = Query(default=1, ge=1, le=38, description="Target Gameweek number"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Evaluates 4 FPL Chip scenarios (Baseline, Triple Captain, Bench Boost, Free Hit)
+    for a manager's squad and returns projected xP deltas (gains).
+    """
+    try:
+        squad_response = await get_user_squad(manager_id=manager_id, event_id=event_id, db=db)
+        
+        all_squad_ids = [
+            p.player_id for p in squad_response.starting_11 + squad_response.bench
+        ]
+        
+        chip_results = await evaluate_chip_strategies(
+            current_squad_ids=all_squad_ids,
+            bank=squad_response.bank_m,
+            free_transfers=squad_response.free_transfers,
+            event_id=event_id,
+        )
+
+        chip_items = [
+            ChipScenarioItem(
+                chip_code=c["chip_code"],
+                chip_name=c["chip_name"],
+                projected_xp=c["projected_xp"],
+                xp_delta=c["xp_delta"],
+                recommendation=c["recommendation"],
+            )
+            for c in chip_results["chips"]
+        ]
+
+        return ChipOptimizationResponse(
+            manager_id=manager_id,
+            event_id=event_id,
+            baseline_xp=chip_results["baseline_xp"],
+            chips=chip_items,
+            best_chip=chip_results["best_chip"],
+            best_chip_name=chip_results["best_chip_name"],
+            best_chip_delta=chip_results["best_chip_delta"],
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Chip evaluation failed: {str(e)}",
+        )
+
+

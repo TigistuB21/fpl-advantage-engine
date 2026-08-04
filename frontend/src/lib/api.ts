@@ -1,4 +1,13 @@
-import { PlayerPrediction, PredictionsListResponse, SquadOptimization, PlayerDetail } from '../types/fpl';
+import {
+  PlayerPrediction,
+  PredictionsListResponse,
+  SquadOptimization,
+  PlayerDetail,
+  UserSquadResponse,
+  TransferOptimizationResponse,
+  ExplainTransferResponse,
+  ChipOptimizationResponse,
+} from '../types/fpl';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -50,3 +59,118 @@ export async function getLatestOptimization(eventId: number = 1): Promise<SquadO
     return null;
   }
 }
+
+/**
+ * Fetches an official FPL manager's imported squad and bank info (/api/v1/user/{manager_id}/squad).
+ */
+export async function getUserSquad(
+  managerId: number,
+  eventId?: number
+): Promise<{ data: UserSquadResponse | null; error?: string }> {
+  try {
+    const url = eventId
+      ? `${API_BASE_URL}/api/v1/user/${managerId}/squad?event_id=${eventId}`
+      : `${API_BASE_URL}/api/v1/user/${managerId}/squad`;
+    const res = await fetch(url, {
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      const detail = errJson.detail || `Unable to fetch FPL squad for Manager ID #${managerId}`;
+      return { data: null, error: detail };
+    }
+    const data = await res.json();
+    return { data, error: undefined };
+  } catch (error) {
+    return { data: null, error: `Network error connecting to FastAPI backend.` };
+  }
+}
+
+
+
+/**
+ * Triggers PuLP transfer optimization for a user squad (/api/v1/optimize/transfers).
+ */
+export async function getTransferOptimization(
+  squadIds: number[],
+  bank: number,
+  freeTransfers: number,
+  maxTransfers: number = 2,
+  eventId: number = 1
+): Promise<TransferOptimizationResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/optimize/transfers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        current_squad_ids: squadIds,
+        bank,
+        free_transfers: freeTransfers,
+        max_transfers: maxTransfers,
+        event_id: eventId,
+      }),
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`Failed transfer optimization: ${res.statusText}`);
+    return await res.json();
+  } catch (error) {
+    console.error('Error fetching transfer optimization:', error);
+    return null;
+  }
+}
+
+/**
+ * Calls FastAPI LLM endpoint (/api/v1/chat/explain-transfer) to get Director of Football explanation.
+ */
+export async function getTransferExplanation(
+  squadContext: UserSquadResponse,
+  transferContext: TransferOptimizationResponse,
+  chipContext?: ChipOptimizationResponse | null
+): Promise<ExplainTransferResponse | null> {
+  try {
+    const payload: any = {
+      user_squad: squadContext,
+      transfer_result: transferContext,
+    };
+    if (chipContext) {
+      payload.transfer_result.chip_strategy = {
+        best_chip: chipContext.best_chip_name,
+        best_chip_delta: chipContext.best_chip_delta,
+        chips: chipContext.chips,
+      };
+    }
+
+    const res = await fetch(`${API_BASE_URL}/api/v1/chat/explain-transfer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`Failed to fetch explanation: ${res.statusText}`);
+    return await res.json();
+  } catch (error) {
+    console.error('Error fetching Director of Football explanation:', error);
+    return null;
+  }
+}
+
+/**
+ * Fetches 4-chip ROI scenario evaluations for a manager squad (/api/v1/optimize/chips/{manager_id}).
+ */
+export async function getChipOptimization(
+  managerId: number,
+  eventId: number = 1
+): Promise<ChipOptimizationResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/optimize/chips/${managerId}?event_id=${eventId}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`Failed to fetch chip optimization: ${res.statusText}`);
+    return await res.json();
+  } catch (error) {
+    console.error('Error fetching chip optimization:', error);
+    return null;
+  }
+}
+
+

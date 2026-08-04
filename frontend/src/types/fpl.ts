@@ -57,3 +57,64 @@ export interface PlayerDetail extends PlayerPrediction {
   };
   upcoming_fixtures: Fixture[];
 }
+
+export interface UserSquadResponse {
+  manager_id: number;
+  event_id: number;
+  player_name: string;
+  team_name: string;
+  bank_m: number;
+  free_transfers: number;
+  starting_11: PlayerPrediction[];
+  bench: PlayerPrediction[];
+}
+
+export interface TransferItem {
+  transferred_out: PlayerPrediction;
+  transferred_in: PlayerPrediction;
+}
+
+export interface TransferOptimizationResponse {
+  event_id: number;
+  formation: string;
+  transfers_made: number;
+  free_transfers: number;
+  hits_taken: number;
+  hit_penalty: number;
+  transfers: TransferItem[];
+  starting_11: PlayerPrediction[];
+  bench: PlayerPrediction[];
+  captain_id: number;
+  vice_captain_id: number;
+  total_expected_points: number;
+  net_xp_gain: number;
+  remaining_bank: number;
+}
+
+export interface ExplainTransferResponse {
+  explanation: string;
+  director_name: string;
+  model_version: string;
+  is_fallback: boolean;
+}
+
+export interface ChipScenarioItem {
+  chip_code: 'baseline' | '3xc' | 'bboost' | 'freehit' | string;
+  chip_name: string;
+  projected_xp: number;
+  xp_delta: number;
+  recommendation: string;
+}
+
+export interface ChipOptimizationResponse {
+  manager_id: number;
+  event_id: number;
+  baseline_xp: number;
+  chips: ChipScenarioItem[];
+  best_chip: string;
+  best_chip_name: string;
+  best_chip_delta: number;
+}
+
+
+
