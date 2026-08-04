@@ -29,3 +29,13 @@ __pycache__/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Node & Build Artifacts
+node_modules/
+.next/
+.expo/
+.expo-shared/
+dist/
+build/
+coverage/
+web-build/

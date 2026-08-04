@@ -1,0 +1,21 @@
+{
+  "name": "fpl-advantage-engine-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FPL Advantage Engine Monorepo supporting Next.js Web, Expo Mobile, and Shared TypeScript packages",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "cd apps/api && .venv\\Scripts\\python.exe -m uvicorn main:app --reload --port 8000 --host 0.0.0.0",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:mobile": "npm run start --workspace=apps/mobile",
+    "dev:mobile:tunnel": "npm run start --workspace=apps/mobile -- --tunnel",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:shared": "npm run build --workspace=packages/shared"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
