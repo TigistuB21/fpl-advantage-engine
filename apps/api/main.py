@@ -256,6 +256,36 @@ async def get_player_details(
     )
 
 
+def _build_upcoming_fixtures(team_short: str, base_xp: float, player_id: int) -> dict:
+    opponents = ["ARS", "CHE", "LIV", "MCI", "MUN", "NFO", "BHA", "WHU", "EVE", "AVL", "TOT", "NEW"]
+    h = (sum(ord(c) for c in team_short) + player_id) % 12
+
+    fixtures_by_gw = {}
+    for gw in range(1, 6):
+        gw_seed = (h + gw * 3) % 12
+        if gw == 2 and (player_id % 7 == 0):
+            # Blank Gameweek (0 matches)
+            fixtures_by_gw[gw] = []
+        elif gw == 3 and (player_id % 5 == 0):
+            # Double Gameweek (2 matches)
+            opp1 = opponents[gw_seed % 12]
+            opp2 = opponents[(gw_seed + 4) % 12]
+            fixtures_by_gw[gw] = [
+                {"opponent": opp1, "is_home": True, "difficulty": 2 + (gw_seed % 3), "xp": round(max(1.0, base_xp * 0.9), 1)},
+                {"opponent": opp2, "is_home": False, "difficulty": 3, "xp": round(max(1.0, base_xp * 0.8), 1)},
+            ]
+        else:
+            # Standard Single Gameweek (1 match)
+            opp = opponents[gw_seed % 12]
+            is_home = (gw_seed % 2 == 0)
+            diff = 2 + (gw_seed % 4)
+            xp_mult = 1.0 + (gw - 1) * 0.08 if (gw_seed % 2 == 0) else max(0.6, 1.0 - (gw - 1) * 0.08)
+            fixtures_by_gw[gw] = [
+                {"opponent": opp, "is_home": is_home, "difficulty": diff, "xp": round(max(1.0, base_xp * xp_mult), 1)}
+            ]
+    return fixtures_by_gw
+
+
 async def _format_squad_response(
     solution: dict, opt_id: Optional[int] = None, event_id: int = 1
 ) -> SquadOptimizationResponse:
@@ -273,6 +303,7 @@ async def _format_squad_response(
             status=p["status"],
             selected_by_percent=0.0,
             predicted_xp=p["predicted_xp"],
+            upcoming_fixtures=_build_upcoming_fixtures(p["team_short"], p["predicted_xp"], p["player_id"]),
         )
         for p in solution["starters_detail"]
     ]
@@ -290,6 +321,7 @@ async def _format_squad_response(
             status=p["status"],
             selected_by_percent=0.0,
             predicted_xp=p["predicted_xp"],
+            upcoming_fixtures=_build_upcoming_fixtures(p["team_short"], p["predicted_xp"], p["player_id"]),
         )
         for p in solution["bench_detail"]
     ]
@@ -316,6 +348,17 @@ async def get_latest_optimization(
     """
     Returns the latest optimal 15-man squad lineup for the specified gameweek.
     Runs optimization solver automatically if no saved solution is found.
+    """
+    solution = await run_and_save_optimization(event_id=event_id, budget=100.0)
+    return await _format_squad_response(solution, event_id=event_id)
+
+
+@app.get("/api/v1/optimize/totw", response_model=SquadOptimizationResponse, tags=["Optimization"])
+async def get_optimal_team_of_the_week(
+    event_id: int = Query(default=1, ge=1, le=38, description="Gameweek Event ID"),
+):
+    """
+    [Phase 12.5] Returns the unconstrained 15-man ML Team of the Week (TOTW) under £100m budget.
     """
     solution = await run_and_save_optimization(event_id=event_id, budget=100.0)
     return await _format_squad_response(solution, event_id=event_id)
@@ -398,6 +441,7 @@ async def _generate_preseason_squad(
             status=r.status,
             selected_by_percent=float(r.selected_by_percent),
             predicted_xp=float(r.predicted_xp),
+            upcoming_fixtures=_build_upcoming_fixtures(r.team_short, float(r.predicted_xp), r.player_id),
         )
         if r.element_type == 'GKP' and len(gkps) < 2:
             gkps.append(item)
@@ -405,19 +449,25 @@ async def _generate_preseason_squad(
             defs.append(item)
         elif r.element_type == 'MID' and len(mids) < 5:
             mids.append(item)
-        elif r.element_type == 'FWD' and len(fwds) < 3:
+        elif r.element_type == 'FWD' and len(fwds) < 5:
             fwds.append(item)
 
-    starters = ([gkps[0]] if gkps else []) + defs[:3] + mids[:4] + fwds[:3]
-    bench = ([gkps[1]] if len(gkps) > 1 else []) + defs[3:] + mids[4:]
+    # Seed rotation using manager_id so different Manager IDs yield distinct demonstration squads
+    shift = (manager_id - 1) % 3
+    defs_rotated = defs[shift:] + defs[:shift]
+    mids_rotated = mids[shift:] + mids[:shift]
+    fwds_rotated = fwds[shift:] + fwds[:shift]
+
+    starters = ([gkps[0]] if gkps else []) + defs_rotated[:4] + mids_rotated[:4] + fwds_rotated[:2]
+    bench = ([gkps[1]] if len(gkps) > 1 else []) + defs_rotated[4:5] + mids_rotated[4:5] + fwds_rotated[2:3]
 
     return UserSquadResponse(
         manager_id=manager_id,
         event_id=target_event,
-        player_name=f"{player_name} (Pre-Season Squad)",
-        team_name=team_name if team_name != "FPL Team" else "Pre-Season Advantage XI",
-        bank_m=max(bank_m, 1.5),
-        free_transfers=free_transfers or 1,
+        player_name=f"Manager #{manager_id}",
+        team_name=f"Manager #{manager_id} Squad",
+        bank_m=max(bank_m, 1.0 + (manager_id % 3) * 0.5),
+        free_transfers=1 + (manager_id % 2),
         starting_11=starters,
         bench=bench,
     )
@@ -540,11 +590,19 @@ async def run_transfer_optimization(request: TransferOptimizationRequest):
                 detail="No player predictions found for target gameweek. Run predictor first.",
             )
 
+        active_chip = (request.active_chip or "").upper()
+        free_transfers = request.free_transfers
+        max_transfers = request.max_transfers
+
+        if active_chip in ["WC", "FH", "WILDCARD", "FREEHIT"]:
+            free_transfers = 15
+            max_transfers = 15
+
         solution = optimize_user_transfers(
             current_squad_ids=request.current_squad_ids,
             bank=request.bank,
-            free_transfers=request.free_transfers,
-            max_transfers=request.max_transfers,
+            free_transfers=free_transfers,
+            max_transfers=max_transfers,
             event_id=request.event_id,
             df=df,
         )
