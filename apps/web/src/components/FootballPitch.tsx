@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { PlayerPrediction } from '../types/fpl';
+import { PlayerPrediction } from '@fpl-engine/shared';
 import { PlayerCard } from './PlayerCard';
 
 interface FootballPitchProps {

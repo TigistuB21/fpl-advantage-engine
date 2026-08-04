@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ExplainTransferResponse } from '../types/fpl';
+import { ExplainTransferResponse } from '@fpl-engine/shared';
 
 interface DirectorChatProps {
   explanationData: ExplainTransferResponse | null;

@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { PlayerPrediction, PlayerDetail } from '../types/fpl';
-import { getPlayerDetails } from '../lib/api';
+import { PlayerPrediction, PlayerDetail, getPlayerDetails } from '@fpl-engine/shared';
 
 interface PlayerModalProps {
   player: PlayerPrediction | null;

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ChipOptimizationResponse } from '../types/fpl';
+import { ChipOptimizationResponse } from '@fpl-engine/shared';
 
 interface ChipAdvisorProps {
   chipData: ChipOptimizationResponse | null;

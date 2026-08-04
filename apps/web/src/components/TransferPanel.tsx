@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { UserSquadResponse, TransferOptimizationResponse } from '../types/fpl';
+import { UserSquadResponse, TransferOptimizationResponse } from '@fpl-engine/shared';
 
 interface TransferPanelProps {
   userSquad: UserSquadResponse | null;
