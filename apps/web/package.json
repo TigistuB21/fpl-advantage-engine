@@ -1,5 +1,5 @@
 {
-  "name": "frontend",
+  "name": "@fpl-engine/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@fpl-engine/shared": "*",
     "next": "15.1.0",
     "react": "19.0.0",
     "react-dom": "19.0.0"
