@@ -8,15 +8,13 @@ import {
   getTransferOptimization,
   getTransferExplanation,
   getChipOptimization,
-} from '../lib/api';
-import {
   PlayerPrediction,
   SquadOptimization,
   UserSquadResponse,
   TransferOptimizationResponse,
   ExplainTransferResponse,
   ChipOptimizationResponse,
-} from '../types/fpl';
+} from '@fpl-engine/shared';
 import { FootballPitch } from '../components/FootballPitch';
 import { BenchBar } from '../components/BenchBar';
 import { PlayerModal } from '../components/PlayerModal';
